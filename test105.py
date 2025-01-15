@@ -38,5 +38,5 @@ def tcp_analyse(chemin_fichier):
         print(f"Erreur: {e}")
 
 # Utilisation
-chemin_fichier = 'DumpFile.txt'
+chemin_fichier = 'C:/Users/userlocal/Desktop/DumpFile.txt'
 tcp_analyse(chemin_fichier)
