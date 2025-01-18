@@ -1,10 +1,11 @@
 import csv
-import webbrowser
 import matplotlib.pyplot as plt
 import os
 import tempfile
+import shutil
 
-def parse_file(filepath):
+# Fonction pour analyser le fichier et extraire les informations pertinentes
+def analyser_fichier(filepath):
     with open(filepath, "r") as fichier:
         ipsr, ipde, longueur, flag, seq, heure = [], [], [], [], [], []
         flagcounterP, flagcounterS, flagcounter, framecounter = 0, 0, 0, 0
@@ -44,6 +45,7 @@ def parse_file(filepath):
     return (ipsr, ipde, longueur, flag, seq, heure, flagcounterP, flagcounterS, flagcounter, framecounter, 
             requestcounter, replycounter, seqcounter, ackcounter, wincounter)
 
+# Fonction pour calculer les ratios nécessaires
 def calculate_ratios(requestcounter, replycounter, flagcounterP, flagcounterS, flagcounter):
     globalreqrepcounter = replycounter + requestcounter
     req = requestcounter / globalreqrepcounter if globalreqrepcounter != 0 else 0
@@ -56,59 +58,48 @@ def calculate_ratios(requestcounter, replycounter, flagcounterP, flagcounterS, f
 
     return req, rep, P, S, A
 
-def create_pie_chart(data, labels, filename):
-    plt.pie(data, labels=labels, autopct='%1.1f%%', startangle=90, shadow=True)
-    plt.axis('equal')
+# Fonction pour créer un diagramme en barres
+def create_bar_chart(data, labels, filename):
+    plt.bar(labels, data, color=['blue', 'orange', 'green'])
+    plt.xlabel('Categories')
+    plt.ylabel('Values')
+    plt.title('Bar Chart')
     plt.savefig(filename)
     plt.close()
 
-def generate_html(framecounter, flagcounterP, flagcounterS, flagcounter, requestcounter, replycounter, seqcounter, wincounter, ackcounter):
-    html_content = '''
-    <html lang="fr">
-       <head>
-          <meta charset="UTF-8">
-          <title> Traitement des données </title>
-          <style>
-          body{
-              background-image: url('https://www.codeur.com/blog/wp-content/uploads/2021/08/image-programmation-1.jpg');
-              background-repeat: no-repeat;
-              background-size: cover;
-              color:#e5f2f7;
-              background-attachment: fixed;
-              }
-          </style>
-       </head>
-       <body>
-           <center><h1>Choukri</h1></center>
-           <center><h2>Projet SAE 15</h2></center>
-           <center><p>Sur cette page web, nous vous présentons les informations et données pertinentes trouvées dans le fichier à traiter.</p></center>
-           <center><h3> Nombre total de trames échangées</h3> %s</center>
-           <br>
-           <center><h3> Drapeaux (Flags)<h3></center>
-           <center>Nombre de flags [P] (PUSH) = %s
-           <br>Nombre de flags [S] (SYN) = %s  
-           <br>Nombre de flag [.] (ACK) = %s
-           <br>
-           <br>
-           <img src="graphe1.png">
-           <h3> Nombre de requêtes et réponses </h3>
-           Request = %s 
-           <br>
-           Reply = %s
-           <br>
-           <br>
-           <img src="graphe2.png">
-           <h3>Statistiques entre seq, win et ack </h3>
-           Nombre de seq = %s
-           <br>
-           Nombre de win = %s
-           <br>
-           Nombre de ack = %s
-       </body>
-    </html>
-    ''' % (framecounter, flagcounterP, flagcounterS, flagcounter, requestcounter, replycounter, seqcounter, wincounter, ackcounter)
-    return html_content
+# Fonction pour générer le contenu Markdown
+def generate_markdown(framecounter, flagcounterP, flagcounterS, flagcounter, requestcounter, replycounter, seqcounter, wincounter, ackcounter):
+    markdown_content = f'''
+# Choukri
 
+## Projet SAE 15
+
+Sur cette page, nous vous présentons les informations et données pertinentes trouvées dans le fichier à traiter.
+
+### Nombre total de trames échangées
+**{framecounter}**
+
+### Drapeaux (Flags)
+- Nombre de flags [P] (PUSH) = **{flagcounterP}**
+- Nombre de flags [S] (SYN) = **{flagcounterS}**
+- Nombre de flag [.] (ACK) = **{flagcounter}**
+
+![Graphe 1](./graphe1.png)
+
+### Nombre de requêtes et réponses
+- Request = **{requestcounter}**
+- Reply = **{replycounter}**
+
+![Graphe 2](./graphe2.png)
+
+### Statistiques entre seq, win et ack
+- Nombre de seq = **{seqcounter}**
+- Nombre de win = **{wincounter}**
+- Nombre de ack = **{ackcounter}**
+'''
+    return markdown_content
+
+# Fonction pour sauvegarder les données dans un fichier CSV
 def save_csv(filepath, headers, rows):
     try:
         with open(filepath, 'w', newline='') as fichiercsv:
@@ -120,26 +111,36 @@ def save_csv(filepath, headers, rows):
     except Exception as e:
         print(f"An error occurred while saving CSV: {e}")
 
+# Fonction principale
 def main():
     try:
         filepath = "C:/Users/userlocal/Desktop/DumpFile.txt"
-        ipsr, ipde, longueur, flag, seq, heure, flagcounterP, flagcounterS, flagcounter, framecounter, requestcounter, replycounter, seqcounter, ackcounter, wincounter = parse_file(filepath)
+        ipsr, ipde, longueur, flag, seq, heure, flagcounterP, flagcounterS, flagcounter, framecounter, requestcounter, replycounter, seqcounter, ackcounter, wincounter = analyser_fichier(filepath)
         
         req, rep, P, S, A = calculate_ratios(requestcounter, replycounter, flagcounterP, flagcounterS, flagcounter)
         
         with tempfile.TemporaryDirectory() as tmpdirname:
-            create_pie_chart([A, P, S], ['Flag [.]', 'Flag [P]', 'Flag [S]'], os.path.join(tmpdirname, "graphe1.png"))
-            create_pie_chart([req, rep], ['Request', 'Reply'], os.path.join(tmpdirname, "graphe2.png"))
+            graphe1_path = os.path.join(tmpdirname, "graphe1.png")
+            graphe2_path = os.path.join(tmpdirname, "graphe2.png")
+            create_bar_chart([A, P, S], ['Flag [.]', 'Flag [P]', 'Flag [S]'], graphe1_path)
+            create_bar_chart([req, rep], ['Request', 'Reply'], graphe2_path)
             
-            html_content = generate_html(framecounter, flagcounterP, flagcounterS, flagcounter, requestcounter, replycounter, seqcounter, wincounter, ackcounter)
-            with open("C:/Users/userlocal/Desktop/105 sae/data1.html", "w") as html:
-                html.write(html_content)
+            # Copier les graphiques dans le répertoire de destination
+            dest_dir = "C:/Users/userlocal/Desktop/105 sae"
+            shutil.copy(graphe1_path, os.path.join(dest_dir, "graphe1.png"))
+            shutil.copy(graphe2_path, os.path.join(dest_dir, "graphe2.png"))
             
-            save_csv('C:/Users/userlocal/Desktop/105 sae/donnees1.csv', ['Heure', 'IP source', 'IP destination', 'Flag', 'Seq', 'Length'], zip(heure, ipsr, ipde, flag, seq, longueur))
-            save_csv('C:/Users/userlocal/Desktop/105 sae/Stats1.csv', ['Flag[P] (PUSH)', 'Flag[S] (SYN)', 'Flag[.] (ACK)', 'Nombre total de trames', 'Nombre de request', 'Nombre de reply', 'Nombre de sequence', 'Nombre de acknowledg', 'Nombre de window'], 
+            # Générer et sauvegarder le contenu Markdown
+            markdown_content = generate_markdown(framecounter, flagcounterP, flagcounterS, flagcounter, requestcounter, replycounter, seqcounter, wincounter, ackcounter)
+            with open(os.path.join(dest_dir, "data1.md"), "w") as md_file:
+                md_file.write(markdown_content)
+            
+            # Sauvegarder les données dans des fichiers CSV
+            save_csv(os.path.join(dest_dir, 'donnees1.csv'), ['Heure', 'IP source', 'IP destination', 'Flag', 'Seq', 'Length'], zip(heure, ipsr, ipde, flag, seq, longueur))
+            save_csv(os.path.join(dest_dir, 'Stats1.csv'), ['Flag[P] (PUSH)', 'Flag[S] (SYN)', 'Flag[.] (ACK)', 'Nombre total de trames', 'Nombre de request', 'Nombre de reply', 'Nombre de sequence', 'Nombre de acknowledg', 'Nombre de window'], 
                      [(flagcounterP, flagcounterS, flagcounter, framecounter, requestcounter, replycounter, seqcounter, ackcounter, wincounter)])
             
-            print("Page web créée avec succès.")
+            print("Page Markdown créée avec succès.")
     except Exception as e:
         print(f"An error occurred: {e}")
 
