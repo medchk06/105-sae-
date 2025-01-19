@@ -1,148 +1,235 @@
+import re
 import csv
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
 import matplotlib.pyplot as plt
 import os
 import tempfile
 import shutil
+import markdown
+import webbrowser
+from tkinter import font as tkfont
 
 # Fonction pour analyser le fichier et extraire les informations pertinentes
 def analyser_fichier(filepath):
     with open(filepath, "r") as fichier:
-        ipsr, ipde, longueur, flag, seq, heure = [], [], [], [], [], []
-        flagcounterP, flagcounterS, flagcounter, framecounter = 0, 0, 0, 0
-        requestcounter, replycounter, seqcounter, ackcounter, wincounter = 0, 0, 0, 0, 0
+        issues = []
+        packet_counts = {
+            "DNS NXDomain": 0,
+            "Suspicious SYN": 0,
+            "Repeated Payload": 0,
+            "Total Packets": 0
+        }
 
-        for ligne in fichier:
-            split = ligne.split(" ")
-            if "IP" in ligne:
-                framecounter += 1
-                if "[P.]" in ligne:
-                    flag.append("[P.]")
-                    flagcounterP += 1
-                elif "[.]" in ligne:
-                    flag.append("[.]")
-                    flagcounter += 1
-                elif "[S]" in ligne:
-                    flag.append("[S]")
-                    flagcounterS += 1
-                if "seq" in ligne:
-                    seqcounter += 1
-                    seq.append(split[8])
-                if "win" in ligne:
-                    wincounter += 1
-                if "ack" in ligne:
-                    ackcounter += 1
-                ipsr.append(split[2])
-                ipde.append(split[4])
-                heure.append(split[0])
-                if "length" in ligne:
-                    longueur.append(split[-2] if "HTTP" in ligne else split[-1])
-                if "ICMP" in ligne:
-                    if "request" in ligne:
-                        requestcounter += 1
-                    elif "reply" in ligne:
-                        replycounter += 1
+        file_content = fichier.read()
 
-    return (ipsr, ipde, longueur, flag, seq, heure, flagcounterP, flagcounterS, flagcounter, framecounter, 
-            requestcounter, replycounter, seqcounter, ackcounter, wincounter)
+        # Compter le nombre total de paquets
+        all_packets_pattern = re.compile(r"^\d+", re.MULTILINE)
+        all_packets = all_packets_pattern.findall(file_content)
+        packet_counts["Total Packets"] = len(all_packets)
 
-# Fonction pour calculer les ratios nécessaires
-def calculate_ratios(requestcounter, replycounter, flagcounterP, flagcounterS, flagcounter):
-    globalreqrepcounter = replycounter + requestcounter
-    req = requestcounter / globalreqrepcounter if globalreqrepcounter != 0 else 0
-    rep = replycounter / globalreqrepcounter if globalreqrepcounter != 0 else 0
+        # Rechercher des paquets suspects
+        dns_frames = list(set(re.findall(r".*NXDomain.*", file_content, re.MULTILINE)))
+        syn_frames = list(set(re.findall(r"IP \S+ > \S+\.http: Flags \[S\].*?", file_content)))
+        repeated_frames = list(set(re.findall(r".*5858 5858.*", file_content)))
 
-    globalflagcounter = flagcounter + flagcounterP + flagcounterS
-    P = flagcounterP / globalflagcounter
-    S = flagcounterS / globalflagcounter
-    A = flagcounter / globalflagcounter
+        # Mettre à jour les compteurs de paquets
+        packet_counts["DNS NXDomain"] = len(dns_frames)
+        packet_counts["Suspicious SYN"] = len(syn_frames)
+        packet_counts["Repeated Payload"] = len(repeated_frames)
 
-    return req, rep, P, S, A
+        # Stocker les détails des paquets suspects
+        for frame in dns_frames:
+            issues.append(["DNS Error", "DNS Resolution Failed", frame])
 
-# Fonction pour créer un diagramme en barres
-def create_bar_chart(data, labels, filename):
-    plt.bar(labels, data, color=['blue', 'orange', 'green'])
-    plt.xlabel('Categories')
-    plt.ylabel('Values')
-    plt.title('Bar Chart')
-    plt.savefig(filename)
-    plt.close()
+        for frame in syn_frames:
+            issues.append(["SYN Flag", "Suspicious SYN Connection", frame])
 
-# Fonction pour générer le contenu Markdown
-def generate_markdown(framecounter, flagcounterP, flagcounterS, flagcounter, requestcounter, replycounter, seqcounter, wincounter, ackcounter):
-    markdown_content = f'''
-# Choukri
+        for frame in repeated_frames:
+            issues.append(["Repetition", "Repeated Payload Data", frame])
 
-## Projet SAE 15
+    return issues, packet_counts
 
-Sur cette page, nous vous présentons les informations et données pertinentes trouvées dans le fichier à traiter.
+# Fonction pour générer un rapport CSV
+def generer_csv(issues, filepath):
+    try:
+        with open(filepath, 'w', newline='', encoding='utf-8-sig') as fichiercsv:
+            writer = csv.writer(fichiercsv, delimiter=';')
+            writer.writerow(["Type", "Description", "Frame"])
+            writer.writerows(issues)
+        messagebox.showinfo("Success", "Results saved into a CSV file.")
+    except Exception as e:
+        messagebox.showerror("Error", f"Unable to save the file: {e}")
 
-### Nombre total de trames échangées
-**{framecounter}**
+# Fonction pour générer un rapport HTML
+def generer_html(issues, packet_counts):
+    # Convertir les résultats en contenu Markdown
+    markdown_content = "| Type | Description | Frame |\n"
+    markdown_content += "| ---  | ---         | ---   |\n"
 
-### Drapeaux (Flags)
-- Nombre de flags [P] (PUSH) = **{flagcounterP}**
-- Nombre de flags [S] (SYN) = **{flagcounterS}**
-- Nombre de flag [.] (ACK) = **{flagcounter}**
+    for issue in issues:
+        markdown_content += f"| {issue[0]} | {issue[1]} | {issue[2]} |\n"
 
-![Graphe 1](./graphe1.png)
+    html_converted_content = markdown.markdown(markdown_content, extensions=['tables'])
 
-### Nombre de requêtes et réponses
-- Request = **{requestcounter}**
-- Reply = **{replycounter}**
+    # Créer un graphique en barres
+    fig, ax = plt.subplots(figsize=(12, 8))  # Increased size of the graph
+    bars = ax.bar(packet_counts.keys(), packet_counts.values(), color=['#FF9999', '#66B2FF', '#99FF99', '#FFCC99'])  # Customized colors
+    ax.set_title("Packet Distribution", fontsize=16, fontweight='bold')  # Customized font
+    ax.set_xlabel("Issue Types", fontsize=14)
+    ax.set_ylabel("Number of Packets", fontsize=14)
+    ax.grid(True, linestyle='--', alpha=0.7)  # Added grid lines
+    plt.xticks(rotation=0, fontsize=12)
+    plt.yticks(fontsize=12)
 
-![Graphe 2](./graphe2.png)
+    # Add value labels on top of the bars
+    for bar in bars:
+        yval = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2, yval + 1, int(yval), ha='center', va='bottom', fontsize=12)
 
-### Statistiques entre seq, win et ack
-- Nombre de seq = **{seqcounter}**
-- Nombre de win = **{wincounter}**
-- Nombre de ack = **{ackcounter}**
-'''
+    # Sauvegarder le graphique en tant qu'image
+    bar_chart_filename = "bar_chart.png"
+    bar_chart_full_path = os.path.join(tempfile.gettempdir(), bar_chart_filename)
+    fig.savefig(bar_chart_full_path)
+    plt.close(fig)
+
+    # Générer le contenu HTML final
+    final_html_content = f"""
+    <html>
+    <head>
+    <title>TCP Analysis Report</title>
+        <style>
+            body {{ font-family: 'Verdana', sans-serif; background-color: #f0f0f0; margin: 20px; }}
+            table {{ border-collapse: collapse; width: 100%; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #4CAF50; color: white; }}
+            tr:nth-child(even) {{ background-color: #f2f2f2; }}
+            h1 {{ color: #4CAF50; }}
+            h2 {{ color: #333; }}
+            .navbar {{ overflow: hidden; background-color: #333; }}
+            .navbar a {{ float: left; display: block; color: #f2f2f2; text-align: center; padding: 14px 16px; text-decoration: none; }}
+            .navbar a:hover {{ background-color: #ddd; color: black; }}
+            .footer {{ position: fixed; left: 0; bottom: 0; width: 100%; background-color: #333; color: white; text-align: center; padding: 10px 0; }}
+            .container {{ max-width: 1200px; margin: auto; padding: 20px; }}
+            .content {{ background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); }}
+        </style>
+    </head>
+    <body>
+        <div class="navbar">
+            <a href="#results">Results</a>
+            <a href="#chart">Chart</a>
+        </div>
+        <div class="container">
+            <div class="content">
+                <h1 id="results">TCP Analysis Results</h1>
+                {html_converted_content}
+                <h2 id="chart">Packet Distribution</h2>
+                <img src="{bar_chart_filename}" alt="Bar Chart" width="800" />  <!-- Increased width of the image -->
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    # Sauvegarder le fichier HTML
+    html_filepath = os.path.join(tempfile.gettempdir(), "tcp_analysis.html")
+    with open(html_filepath, 'w', encoding='utf-8') as f:
+        f.write(final_html_content)
+
+    # Ouvrir le fichier HTML dans le navigateur
+    webbrowser.open('file://' + html_filepath)
+
+# Fonction pour générer un rapport Markdown
+def generer_markdown(issues, packet_counts):
+    markdown_content = "# TCP Analysis Results\n\n"
+    markdown_content += "## Packet Counts\n"
+    for key, value in packet_counts.items():
+        markdown_content += f"- **{key}**: {value}\n"
+
+    markdown_content += "\n## Issues Detected\n"
+    markdown_content += "| Type | Description | Frame |\n"
+    markdown_content += "| ---  | ---         | ---   |\n"
+
+    for issue in issues:
+        markdown_content += f"| {issue[0]} | {issue[1]} | {issue[2]} |\n"
+
     return markdown_content
 
-# Fonction pour sauvegarder les données dans un fichier CSV
-def save_csv(filepath, headers, rows):
-    try:
-        with open(filepath, 'w', newline='') as fichiercsv:
-            writer = csv.writer(fichiercsv)
-            writer.writerow(headers)
-            writer.writerows(rows)
-    except PermissionError:
-        print(f"Permission denied: {filepath}")
-    except Exception as e:
-        print(f"An error occurred while saving CSV: {e}")
+# Fonction principale pour charger un fichier et afficher les résultats
+def charger_fichier():
+    filepath = filedialog.askopenfilename()
+    if filepath:
+        try:
+            issues, packet_counts = analyser_fichier(filepath)
+            afficher_resultats(issues, packet_counts)
+        except Exception as e:
+            messagebox.showerror("Error", f"Unable to analyze the file: {e}")
 
-# Fonction principale
-def main():
-    try:
-        filepath = "C:/Users/userlocal/Desktop/DumpFile.txt"
-        ipsr, ipde, longueur, flag, seq, heure, flagcounterP, flagcounterS, flagcounter, framecounter, requestcounter, replycounter, seqcounter, ackcounter, wincounter = analyser_fichier(filepath)
-        
-        req, rep, P, S, A = calculate_ratios(requestcounter, replycounter, flagcounterP, flagcounterS, flagcounter)
-        
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            graphe1_path = os.path.join(tmpdirname, "graphe1.png")
-            graphe2_path = os.path.join(tmpdirname, "graphe2.png")
-            create_bar_chart([A, P, S], ['Flag [.]', 'Flag [P]', 'Flag [S]'], graphe1_path)
-            create_bar_chart([req, rep], ['Request', 'Reply'], graphe2_path)
-            
-            # Copier les graphiques dans le répertoire de destination
-            dest_dir = "C:/Users/userlocal/Desktop/105 sae"
-            shutil.copy(graphe1_path, os.path.join(dest_dir, "graphe1.png"))
-            shutil.copy(graphe2_path, os.path.join(dest_dir, "graphe2.png"))
-            
-            # Générer et sauvegarder le contenu Markdown
-            markdown_content = generate_markdown(framecounter, flagcounterP, flagcounterS, flagcounter, requestcounter, replycounter, seqcounter, wincounter, ackcounter)
-            with open(os.path.join(dest_dir, "data1.md"), "w") as md_file:
-                md_file.write(markdown_content)
-            
-            # Sauvegarder les données dans des fichiers CSV
-            save_csv(os.path.join(dest_dir, 'donnees1.csv'), ['Heure', 'IP source', 'IP destination', 'Flag', 'Seq', 'Length'], zip(heure, ipsr, ipde, flag, seq, longueur))
-            save_csv(os.path.join(dest_dir, 'Stats1.csv'), ['Flag[P] (PUSH)', 'Flag[S] (SYN)', 'Flag[.] (ACK)', 'Nombre total de trames', 'Nombre de request', 'Nombre de reply', 'Nombre de sequence', 'Nombre de acknowledg', 'Nombre de window'], 
-                     [(flagcounterP, flagcounterS, flagcounter, framecounter, requestcounter, replycounter, seqcounter, ackcounter, wincounter)])
-            
-            print("Page Markdown créée avec succès.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+# Fonction pour afficher les résultats dans une nouvelle fenêtre
+def afficher_resultats(issues, packet_counts):
+    results_window = tk.Toplevel()
+    results_window.title("Analysis Results")
+    results_window.geometry("800x600")
 
-if __name__ == "__main__":
-    main()
+    # Créer un Treeview pour afficher les résultats
+    tree = ttk.Treeview(results_window)
+    tree["columns"] = ("Type", "Description", "Frame")
+    tree.column("#0", width=0, stretch=tk.NO)
+    tree.column("Type", anchor=tk.W, width=120)
+    tree.column("Description", anchor=tk.W, width=200)
+    tree.column("Frame", anchor=tk.W, width=400)
+
+    tree.heading("#0", text="", anchor=tk.W)
+    tree.heading("Type", text="Type", anchor=tk.W)
+    tree.heading("Description", text="Description", anchor=tk.W)
+    tree.heading("Frame", text="Suspicious Frame", anchor=tk.W)
+    tree.pack(fill=tk.BOTH, expand=True)
+
+    for issue in issues:
+        tree.insert("", tk.END, values=issue)
+
+    # Boutons pour sauvegarder les résultats
+    button_frame = ttk.Frame(results_window)
+    button_frame.pack(pady=10)
+
+    save_csv_button = tk.Button(button_frame, text="Save as CSV", 
+                                command=lambda: generer_csv(issues, filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])))
+    save_csv_button.pack(side=tk.LEFT, padx=5)
+
+    save_html_button = tk.Button(button_frame, text="Open in Browser", 
+                                 command=lambda: generer_html(issues, packet_counts))
+    save_html_button.pack(side=tk.LEFT, padx=5)
+
+    save_md_button = tk.Button(button_frame, text="Save as Markdown", 
+                               command=lambda: sauvegarder_markdown(issues, packet_counts))
+    save_md_button.pack(side=tk.LEFT, padx=5)
+
+# Fonction pour sauvegarder un rapport Markdown
+def sauvegarder_markdown(issues, packet_counts):
+    markdown_content = generer_markdown(issues, packet_counts)
+    filepath = filedialog.asksaveasfilename(defaultextension=".md", filetypes=[("Markdown files", "*.md")])
+    if filepath:
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(markdown_content)
+            messagebox.showinfo("Success", "Results saved into a Markdown file.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Unable to save the file: {e}")
+
+# Interface graphique principale
+root = tk.Tk()
+root.title("TCP Packet Analyzer")
+root.configure(bg='lightgray')
+
+# Utiliser une police personnalisée
+custom_font = tkfont.Font(family="Arial", size=12, weight="bold")  # Customized font
+
+btn = tk.Button(root, text="Load a File", command=charger_fichier, 
+                font=custom_font, bg='red', fg='white', padx=20, pady=10)  # Changed button color
+btn.pack(pady=20)
+
+try:
+    root.mainloop()
+except KeyboardInterrupt:
+    print("Program interrupted. Exiting...")
+    root.destroy()
