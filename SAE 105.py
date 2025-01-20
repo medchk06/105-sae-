@@ -97,7 +97,7 @@ def generer_html(issues, packet_counts):
     final_html_content = f"""
     <html>
     <head>
-    <title>TCP Analysis Report</title>
+    <title>Rapport de l'analyse - SAE 105</title>
         <style>
             body {{ font-family: 'Verdana', sans-serif; background-color: #f0f0f0; margin: 20px; }}
             table {{ border-collapse: collapse; width: 100%; }}
@@ -116,16 +116,24 @@ def generer_html(issues, packet_counts):
     </head>
     <body>
         <div class="navbar">
-            <a href="#results">Results</a>
-            <a href="#chart">Chart</a>
+            <a href="#results">Résultats</a>
+            <a href="#chart">Graphe</a>
         </div>
         <div class="container">
             <div class="content">
-                <h1 id="results">TCP Analysis Results</h1>
+                <h1>SAE 105</h1>
+                <h1 id="results">Résultats d'analyse du fichier</h1>
                 {html_converted_content}
-                <h2 id="chart">Packet Distribution</h2>
+                <h2 id="chart">Distribution des paquets</h2>
                 <img src="{bar_chart_filename}" alt="Bar Chart" width="800" />  <!-- Increased width of the image -->
+                <h2>Interprétation des résultats</h2>
+                <p><strong>DNS NXDomain :</strong> Un nombre élevé de paquets DNS avec des erreurs NXDomain peut indiquer une attaque par déni de service (DoS) ciblant le serveur DNS ou des tentatives de résolution de noms de domaine inexistants.</p>
+                <p><strong>Suspicious SYN :</strong> Un nombre élevé de paquets SYN sans les paquets correspondants (SYN-ACK) peut indiquer une attaque par SYN flood, qui est une forme de DoS visant à épuiser les ressources du serveur en envoyant de nombreuses requêtes de connexion incomplètes.</p>
+                <p><strong>Repeated Payload :</strong> La présence de paquets avec des charges utiles répétées peut indiquer une tentative de contournement de la détection d'intrusion ou une attaque par injection de paquets.</p>
             </div>
+        </div>
+        <div class="footer">
+            <p>SAE 105 - Analyse des paquets TCP</p>
         </div>
     </body>
     </html>
